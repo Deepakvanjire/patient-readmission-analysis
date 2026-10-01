@@ -1,0 +1,246 @@
+# DAX Measures — Patient Readmission Analysis
+# Power BI Desktop — patient_readmission database
+# ============================================================
+# Connect Power BI to MySQL using:
+#   Get Data → MySQL Database
+#   Server: localhost
+#   Database: patient_readmission
+# ============================================================
+
+
+# ============================================================
+# BASIC COUNTS
+# ============================================================
+
+Total Patients =
+DISTINCTCOUNT(patients[patient_id])
+
+
+Total Admissions =
+COUNTROWS(admissions)
+
+
+Total Readmissions =
+CALCULATE(
+    COUNTROWS(admissions),
+    admissions[readmitted_30d] = 1
+)
+
+
+Total 7-Day Readmissions =
+CALCULATE(
+    COUNTROWS(admissions),
+    admissions[readmitted_7d] = 1
+)
+
+
+# ============================================================
+# RATES
+# ============================================================
+
+Readmission Rate =
+DIVIDE(
+    [Total Readmissions],
+    [Total Admissions],
+    0
+)
+
+
+Readmission Rate % =
+FORMAT([Readmission Rate], "0.00%")
+
+
+7-Day Readmission Rate =
+DIVIDE(
+    [Total 7-Day Readmissions],
+    [Total Admissions],
+    0
+)
+
+
+# ============================================================
+# LENGTH OF STAY
+# ============================================================
+
+Average LOS =
+AVERAGE(admissions[los_days])
+
+
+Avg LOS Readmitted =
+CALCULATE(
+    AVERAGE(admissions[los_days]),
+    admissions[readmitted_30d] = 1
+)
+
+
+Avg LOS Not Readmitted =
+CALCULATE(
+    AVERAGE(admissions[los_days]),
+    admissions[readmitted_30d] = 0
+)
+
+
+# ============================================================
+# FINANCIAL
+# ============================================================
+
+Total Cost INR =
+SUM(billing[total_cost_inr])
+
+
+Average Cost Per Admission =
+DIVIDE(
+    [Total Cost INR],
+    [Total Admissions],
+    0
+)
+
+
+Total Govt Subsidy =
+SUM(billing[govt_subsidy_inr])
+
+
+Total Out of Pocket =
+SUM(billing[out_of_pocket_inr])
+
+
+Avg Out of Pocket =
+AVERAGE(billing[out_of_pocket_inr])
+
+
+Readmission Total Cost =
+CALCULATE(
+    SUM(billing[total_cost_inr]),
+    admissions[readmitted_30d] = 1
+)
+
+
+Average Cost Readmitted =
+CALCULATE(
+    AVERAGE(billing[total_cost_inr]),
+    admissions[readmitted_30d] = 1
+)
+
+
+Average Cost Not Readmitted =
+CALCULATE(
+    AVERAGE(billing[total_cost_inr]),
+    admissions[readmitted_30d] = 0
+)
+
+
+Readmission Cost Premium =
+[Average Cost Readmitted] - [Average Cost Not Readmitted]
+
+
+# ============================================================
+# CLINICAL
+# ============================================================
+
+Average Charlson Index =
+AVERAGE(admissions[charlson_index])
+
+
+Average Comorbidity Count =
+AVERAGE(patients[comorbidity_count])
+
+
+Average Previous Admissions =
+AVERAGE(patients[prev_admissions])
+
+
+Average Procedures =
+AVERAGE(admissions[num_procedures])
+
+
+Average HbA1c =
+AVERAGE(admissions[hba1c])
+
+
+Average Creatinine =
+AVERAGE(admissions[creatinine])
+
+
+Average Haemoglobin =
+AVERAGE(admissions[haemoglobin])
+
+
+Average Systolic BP =
+AVERAGE(admissions[systolic_bp])
+
+
+# ============================================================
+# FOLLOW-UP PRIORITY (Calculated Column in admissions table)
+# ============================================================
+#
+# Step 1: Create a calculated column in the admissions table
+#         to compute the priority score:
+#
+# Priority Score =
+# VAR prev = RELATED(patients[prev_admissions])
+# VAR comor = RELATED(patients[comorbidity_count])
+# VAR age = RELATED(patients[age])
+# RETURN
+#     IF(prev >= 3, 3, 0)
+#   + IF(comor >= 3, 3, 0)
+#   + IF(admissions[charlson_index] >= 3, 3, 0)
+#   + IF(age >= 60, 2, 0)
+#   + IF(admissions[los_days] >= 7, 2, 0)
+#   + IF(admissions[admit_type] = "Emergency", 2, 0)
+#   + IF(admissions[discharge_type] = "LAMA", 3, 0)
+#   + IF(admissions[discharge_type] = "Referred", 2, 0)
+#   + IF(admissions[ward_type] = "ICU", 2, 0)
+#
+# Step 2: Create a calculated column for the tier label:
+#
+# Followup Priority =
+# SWITCH(
+#     TRUE(),
+#     admissions[Priority Score] >= 10, "HIGH",
+#     admissions[Priority Score] >= 5,  "MEDIUM",
+#     "LOW"
+# )
+#
+# DISCLAIMER: This segmentation is based on historical patterns
+# in synthetic data and is NOT a clinical prediction model.
+
+
+# ============================================================
+# HOSPITAL PERFORMANCE
+# ============================================================
+
+Hospital Readmission Rate =
+DIVIDE(
+    CALCULATE(COUNTROWS(admissions), admissions[readmitted_30d] = 1),
+    COUNTROWS(admissions),
+    0
+)
+
+
+Hospital Avg LOS =
+AVERAGE(admissions[los_days])
+
+
+Hospital Total Admissions =
+COUNTROWS(admissions)
+
+
+# ============================================================
+# NOTES
+# ============================================================
+# Recommended Power BI Data Model (Star Schema):
+#
+#   FACT_ADMISSIONS  (admissions table)
+#   FACT_BILLING     (billing table)
+#   FACT_DIAGNOSES   (diagnoses table)
+#   DIM_PATIENTS     (patients table)
+#   DIM_HOSPITALS    (hospitals table)
+#
+# Relationships:
+#   admissions[patient_id]  -> patients[patient_id]   (Many:1)
+#   admissions[hospital_id] -> hospitals[hospital_id] (Many:1)
+#   billing[admission_id]   -> admissions[admission_id] (1:1)
+#   diagnoses[admission_id] -> admissions[admission_id] (Many:1)
+#
+# Filter direction: Single (from Dim to Fact)
+# Cross-filter for diagnoses: Both (to enable filtering by diag_category)
